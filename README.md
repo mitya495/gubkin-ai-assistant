@@ -119,17 +119,18 @@ SQL, сгенерированный моделью, проверяется па�
 
 ### 1. PostgreSQL в Docker
 
+Запуск контейнера и инициализация базы данных из эталонного дампа:
+
 ```bash
-docker run --name gubkin-pg -e POSTGRES_PASSWORD=<admin_password> -p 5432:5432 -d postgres:16
+docker run --name gubkin-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
 docker cp database_dump.sql gubkin-pg:/database_dump.sql
 docker exec -it gubkin-pg psql -U postgres -d postgres -f /database_dump.sql
-```
 
-Сервисная роль с ограниченными правами:
+Создание сервисной учетной записи с ограниченными привилегиями (только чтение):
 
 ```bash
 docker exec -it gubkin-pg psql -U postgres -d postgres -c "
-CREATE USER bot_readonly WITH PASSWORD '<service_password>';
+CREATE USER bot_readonly WITH PASSWORD 'gubkin_pass_2026_cb_team';
 GRANT CONNECT ON DATABASE postgres TO bot_readonly;
 GRANT USAGE ON SCHEMA public TO bot_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO bot_readonly;
@@ -138,7 +139,7 @@ GRANT INSERT ON TABLE query_logs TO bot_readonly;
 GRANT USAGE, SELECT ON SEQUENCE query_logs_id_seq TO bot_readonly;"
 ```
 
-> ⚠️ Замените `<admin_password>` и `<service_password>` на собственные значения и не храните реальные пароли в репозитории.
+> 🔒 Политика безопасности: В демонстрационном тестовом контуре используется предустановленный сервисный пароль (gubkin_pass_2026_cb_team). В Production-развертывании учетные данные передаются через изолированные переменные окружения (.env / Docker Secrets).
 
 ### 2. Локальная LLM
 
