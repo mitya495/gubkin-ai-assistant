@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gubkin AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --gubkin-dark-blue: #0A2240;
+            --gubkin-blue: #004785;
+            --gubkin-light-blue: #0072CE;
+            --gubkin-accent: #E8F1F8;
+            --white: #FFFFFF;
+            --gray-text: #666666;
+            --bg-page: #F0F4F8;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg-page);
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: radial-gradient(circle at top right, var(--gubkin-accent), transparent 40%);
+        }
+
+        .widget-toggle-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 65px;
+            height: 65px;
+            background: linear-gradient(135deg, var(--gubkin-dark-blue) 0%, var(--gubkin-light-blue) 100%);
+            border-radius: 50%;
+            border: none;
+            color: var(--white);
+            box-shadow: 0 8px 25px rgba(0, 71, 133, 0.35);
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .widget-toggle-btn:hover { transform: scale(1.1); }
+        .widget-toggle-btn svg { width: 32px; height: 32px; fill: currentColor; }
+
+        .chat-widget {
+            position: fixed;
+            bottom: 105px;
+            right: 30px;
+            width: 520px;
+            height: 720px;
+            max-height: calc(100vh - 120px);
+            background: var(--white);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(10, 34, 64, 0.15);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(0, 71, 133, 0.1);
+            z-index: 999;
+            transition: all 0.3s ease;
+        }
+
+        .chat-widget.hidden {
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            pointer-events: none;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, var(--gubkin-dark-blue) 0%, var(--gubkin-blue) 100%);
+            color: var(--white);
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0; /* Не сжимается */
+        }
+
+        .header-left { display: flex; align-items: center; gap: 12px; }
+
+        .logo-placeholder {
+            width: 42px;
+            height: 42px;
+            background: var(--white);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--gubkin-blue);
+            font-weight: 700;
+            font-size: 13px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        .header-info h2 { margin: 0; font-size: 15px; font-weight: 600; }
+        .header-info p { margin: 2px 0 0; font-size: 11px; color: #A0C4E2; }
+        .close-btn { background: none; border: none; color: #ffffff; opacity: 0.7; font-size: 22px; cursor: pointer; }
+        .close-btn:hover { opacity: 1; }
+
+        /* ИСПРАВЛЕНИЕ: Кнопки-подсказки теперь НИКОГДА не сжимаются */
+        .suggestions {
+            padding: 10px 15px;
+            background: #f8fafc;
+            border-bottom: 1px solid #eef2f6;
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            white-space: nowrap;
+            flex-shrink: 0; /* Защита от сжатия */
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .suggestions::-webkit-scrollbar { display: none; }
+
+        .suggestion-chip {
+            background: var(--white);
+            border: 1px solid #cbd5e1;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            cursor: pointer;
+            color: var(--gubkin-blue);
+            font-weight: 500;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .suggestion-chip:hover {
+            background: var(--gubkin-accent);
+            border-color: var(--gubkin-light-blue);
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            background: #FAFAFA;
+        }
+
+        .msg {
+            max-width: 90%;
+            padding: 12px 16px;
+            border-radius: 15px;
+            font-size: 13px;
+            line-height: 1.5;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .msg.bot {
+            background: var(--white);
+            color: var(--gubkin-dark-blue);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid #EAEAEA;
+        }
+
+        .msg.user {
+            background: var(--gubkin-light-blue);
+            color: var(--white);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 10px rgba(0, 114, 206, 0.2);
+        }
+
+        .bot-text-answer {
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .sql-block {
+            background: #1E1E1E;
+            color: #D4D4D4;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            margin: 8px 0;
+            overflow-x: auto;
+            border-left: 4px solid var(--gubkin-light-blue);
+            line-height: 1.4;
+        }
+
+        .explanation-block {
+            background: #f0f7ff;
+            border: 1px dashed var(--gubkin-light-blue);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            color: #034687;
+            margin-bottom: 8px;
+        }
+
+        /* Предупреждение о большой выборке */
+        .large-dataset-banner {
+            background: #fff8e1;
+            border: 1px solid #ffe082;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: #795548;
+            line-height: 1.4;
+        }
+
+        .pagination-action-btn {
+            background: #004785;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: background 0.2s;
+        }
+
+        .pagination-action-btn:hover {
+            background: #0072CE;
+        }
+
+        .telemetry-tag {
+            display: inline-block;
+            font-size: 10px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .table-container {
+            margin-top: 8px;
+            max-height: 200px;
+            overflow: auto;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+        th { background: #f1f5f9; color: var(--gubkin-dark-blue); padding: 7px 10px; font-weight: 600; position: sticky; top: 0; border-bottom: 1px solid #cbd5e1; }
+        td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+        tr:nth-child(even) { background-color: #f8fafc; }
+
+        .chat-input-area {
+            padding: 12px 16px;
+            background: var(--white);
+            border-top: 1px solid #EEEEEE;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-shrink: 0; /* Не сжимается */
+        }
+
+        .chat-input-area input {
+            flex-grow: 1;
+            padding: 12px 18px;
+            border: 1px solid #E0E0E0;
+            border-radius: 25px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .chat-input-area input:focus {
+            border-color: var(--gubkin-light-blue);
+            box-shadow: 0 0 0 3px var(--gubkin-accent);
+        }
+
+        .send-btn {
+            background: var(--gubkin-light-blue);
+            color: var(--white);
+            border: none;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .send-btn:hover { background: var(--gubkin-blue); transform: scale(1.05); }
+        .send-btn svg { width: 18px; height: 18px; fill: currentColor; transform: translateX(1px); }
+
+        .typing-indicator { display: flex; align-items: center; gap: 4px; padding: 8px 12px; }
+        .dot { width: 6px; height: 6px; background: var(--gubkin-blue); border-radius: 50%; animation: bounce 1.3s infinite ease-in-out; }
+        .dot:nth-child(2) { animation-delay: 0.15s; }
+        .dot:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+<button class="widget-toggle-btn" id="toggleBtn" onclick="toggleChat()">
+    <svg viewBox="0 0 24 24">
+        <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
+    </svg>
+</button>
+
+<div class="chat-widget" id="chatWidget">
+    <div class="chat-header">
+        <div class="header-left">
+            <div class="logo-placeholder">РГУ</div>
+            <div class="header-info">
+                <h2>AI Data Ассистент</h2>
+                <p>РГУ нефти и газа им. И.М. Губкина</p>
+            </div>
+        </div>
+        <button class="close-btn" onclick="toggleChat()">&times;</button>
+    </div>
+
+    <!-- Кнопки подсказок (Никогда не сжимаются) -->
+    <div class="suggestions">
+        <div class="suggestion-chip" onclick="quickAsk('Сколько заявлений подано на Экономику в 2026 году?')">📊 Заявления 2026</div>
+        <div class="suggestion-chip" onclick="quickAsk('Выведи топ 5 самых популярных образовательных программ по количеству заявлений')">🏆 Топ-5 программ</div>
+        <div class="suggestion-chip" onclick="quickAsk('Какой средний балл по курсу Физика?')">🎯 Средний балл Физика</div>
+        <div class="suggestion-chip" onclick="quickAsk('Сколько преподавателей имеют степень PhD?')">🎓 Преподаватели PhD</div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        <div class="msg bot">
+            Здравствуйте! Я — интеллектуальный ассистент базы данных РГУ нефти и газа. Чем могу помочь?
+        </div>
+    </div>
+
+    <div class="chat-input-area">
+        <input type="text" id="userInput" placeholder="Спросите что-нибудь..." autocomplete="off" onkeydown="if(event.key==='Enter') sendMessage()">
+        <button class="send-btn" onclick="sendMessage()" title="Отправить">
+            <svg viewBox="0 0 24 24">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+            </svg>
+        </button>
+    </div>
+</div>
+
+<script>
+    const API_URL = "http://localhost:8000/api/query";
+    let chatHistory = [];
+
+    function toggleChat() {
+        document.getElementById("chatWidget").classList.toggle("hidden");
+    }
+
+    function quickAsk(text) {
+        document.getElementById("userInput").value = text;
+        sendMessage();
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById("userInput");
+        const messageText = input.value.trim();
+        if (!messageText) return;
+
+        const messagesContainer = document.getElementById("chatMessages");
+
+        // 1. Сообщение пользователя
+        const userDiv = document.createElement("div");
+        userDiv.className = "msg user";
+        userDiv.textContent = messageText;
+        messagesContainer.appendChild(userDiv);
+
+        input.value = "";
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        // 2. Индикатор загрузки
+        const loadingDiv = document.createElement("div");
+        loadingDiv.className = "msg bot";
+        loadingDiv.innerHTML = `
+            <div class="typing-indicator">
+                <span style="font-size: 11px; margin-right: 6px; color: #666;">Формирую ответ...</span>
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        `;
+        messagesContainer.appendChild(loadingDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        try {
+            // 3. Запрос к бэкенду
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    question: messageText,
+                    history: chatHistory
+                })
+            });
+
+            const data = await response.json();
+            loadingDiv.remove();
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Ошибка обработки");
+            }
+
+            chatHistory.push({ role: "user", content: messageText });
+            chatHistory.push({ role: "assistant", content: data.text_answer || data.sql || "" });
+
+            // 4. Отрисовка ответа
+            const botDiv = document.createElement("div");
+            botDiv.className = "msg bot";
+
+            let htmlContent = `<div class="bot-text-answer">${escapeHtml(data.text_answer)}</div>`;
+
+            if (data.is_sql && data.sql) {
+                htmlContent += `
+                    <div class="explanation-block">
+                        💡 <strong>Explainable AI:</strong> ${escapeHtml(data.explanation)}
+                    </div>
+                    <div class="sql-block">${escapeHtml(data.sql)}</div>
+                `;
+
+                // Одиночный результат (COUNT, AVG)
+                if (data.data && data.data.length === 1 && data.data[0].length === 1) {
+                    htmlContent += `
+                        <div style="background: #e8f5e9; border: 1px solid #c8e6c9; padding: 10px 14px; border-radius: 8px; margin: 8px 0; color: #2e7d32; font-size: 14px;">
+                            📊 <strong>Результат:</strong> <span style="font-size: 16px; font-weight: 700;">${escapeHtml(data.data[0][0])}</span>
+                        </div>
+                    `;
+                }
+                // Таблица
+                else if (data.data && data.data.length > 0) {
+                    htmlContent += `<div class="table-container"><table><thead><tr>`;
+                    data.columns.forEach(col => htmlContent += `<th>${escapeHtml(col)}</th>`);
+                    htmlContent += `</tr></thead><tbody>`;
+                    
+                    data.data.forEach(row => {
+                        htmlContent += `<tr>`;
+                        row.forEach(val => htmlContent += `<td>${escapeHtml(val)}</td>`);
+                        htmlContent += `</tr>`;
+                    });
+                    htmlContent += `</tbody></table></div>`;
+
+                    // БОНУСНЫЕ БАЛЛЫ: Предупреждение о большой выборке + Пагинация
+                    if (data.data.length >= 50) {
+                        htmlContent += `
+                            <div class="large-dataset-banner">
+                                ⚠️ <strong>Большой объём выборки:</strong> показаны первые 50 записей.<br>
+                                💡 <em>Рекомендация:</em> уточните запрос (добавьте фильтр по факультету, курсу или году).<br>
+                                <button class="pagination-action-btn" onclick="quickAsk('${escapeHtml(messageText)} (покажи следующие 50 с OFFSET 50)')">
+                                    📄 Следующие 50 записей (Пагинация OFFSET) &rarr;
+                                </button>
+                            </div>
+                        `;
+                    }
+                } 
+                // Пустая выборка
+                else {
+                    htmlContent += `
+                        <div style="background: #fff3e0; border: 1px solid #ffe0b2; padding: 8px 12px; border-radius: 8px; margin: 8px 0; color: #e65100; font-size: 12px;">
+                            ℹ️ В базе данных нет записей, удовлетворяющих заданным условиям (найдено 0 строк).
+                        </div>
+                    `;
+                }
+            }
+
+            htmlContent += `<div class="telemetry-tag">⏱ ${data.execution_time_ms} мс ${data.is_sql ? `| Найдено строк: ${data.data.length}` : ''}</div>`;
+            botDiv.innerHTML = htmlContent;
+            messagesContainer.appendChild(botDiv);
+
+        } catch (err) {
+            if (loadingDiv) loadingDiv.remove();
+            const errDiv = document.createElement("div");
+            errDiv.className = "msg bot";
+            errDiv.style.borderColor = "#ffcdd2";
+            errDiv.style.backgroundColor = "#ffebee";
+            errDiv.innerHTML = `⚠️ <strong>Ошибка:</strong> ${escapeHtml(err.message)}`;
+            messagesContainer.appendChild(errDiv);
+        }
+
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function escapeHtml(string) {
+        return String(string).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+</script>
+
+</body>
+</html>
