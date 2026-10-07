@@ -1,11 +1,13 @@
 import time
 import json
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import asyncpg
 import requests
@@ -25,11 +27,17 @@ DB_CONFIG = {
 OLLAMA_URL = "http://localhost:11434/api/chat"
 ALLOWED_TABLES = {"faculties", "programs", "applications", "students", "teachers", "courses", "grades"}
 
+# --- FIX #2: Ollama одновременно обрабатывает один инференс -> семафор-очередь ---
+# Семафор на 1 означает "только один запрос к модели одновременно".
+# Остальные ждут в очереди, но хотя бы не падают и не ломают GPU-память.
+OLLAMA_SEMAPHORE = asyncio.Semaphore(1)
+OLLAMA_QUEUE_COUNTER = {"waiting": 0}
+
 db_pool: Optional[asyncpg.Pool] = None
 
-SYSTEM_PROMPT = """Ты — интеллектуальный ассистент базы данных университета Губкина. Ты общаешься с пользователем и переводишь его вопросы в безопасные PostgreSQL запросы.
+SYSTEM_PROMPT = """Ты — ведущий SQL-эксперт базы данных университета Губкина.
 
-СПРАВОЧНИК ФАКУЛЬТЕТОВ (используй эти точные ID и названия):
+СПРАВОЧНИК ФАКУЛЬТЕТОВ (используй эти точные ID):
 - id 1: Факультет разработки нефтяных и газовых месторождений (ФРНиГМ)
 - id 2: Факультет разработки нефтегазовых систем (ФРНГС)
 - id 3: Факультет химической технологии и экологии (ФХТиЭ)
@@ -40,48 +48,38 @@ SYSTEM_PROMPT = """Ты — интеллектуальный ассистент 
 
 СХЕМА ТАБЛИЦ:
 - faculties (id, name)
-- programs (id, faculty_id, name, year_started)
+- programs (id, faculty_id, name)
 - applications (id, program_id, year [2021-2026], status ['submitted', 'approved', 'rejected'])
 - students (id, program_id, applicant_hash, course [1-6], enrollment_year)
 - teachers (id, full_name, faculty_id, degree ['PhD', 'Master', 'Bachelor'])
 - courses (id, teacher_id, name, semester [1-12], program_id)
 - grades (id, student_id, course_id, grade [2-5], semester)
 
-ПРАВИЛА И ОГРАНИЧЕНИЯ:
-1. ФОРМУЛИРОВКА ОТВЕТА (КРИТИЧНО!):
-   В поле text_answer пиши краткую человеческую подводку (например: "Вот найденные данные:", "Результаты запроса:", "Статистика по вашему вопросу:").
-   СТРОГО ЗАПРЕЩЕНО писать фразы вроде "выполните следующий SQL-запрос"! Система выполняет запрос сама!
+ЭТАЛОННЫЕ ПРИМЕРЫ (ДЕЛАЙ СТРОГО ТАК):
+1. Заявления по названию программы ("на Экономику", "на Юриспруденцию", "на Нефтегазовое дело"):
+   SELECT COUNT(*) FROM applications a JOIN programs p ON a.program_id = p.id WHERE p.name ILIKE '%Экономика%' AND a.year = 2026;
+2. Поиск преподавателя:
+   SELECT full_name, degree FROM teachers WHERE full_name ILIKE '%Сидоров%';
+3. Средний балл:
+   SELECT ROUND(AVG(grade)::numeric, 2) FROM grades g JOIN courses c ON g.course_id = c.id WHERE c.name ILIKE '%Физика%';
 
-2. ПОИСК ЛЮДЕЙ ПО ФАМИЛИИ:
-   ФИО в базе есть ТОЛЬКО у преподавателей (teachers). Поиск человека по имени/фамилии — это ВСЕГДА поиск по teachers.full_name.
-   Отсекай окончания склонений до основы: "Сидорова" -> ILIKE '%Сидоров%'.
-
-3. ЗАЩИТА СТУДЕНТОВ (ФЗ-152):
-   ТОЛЬКО если пользователь ЯВНО написал слово "студент" вместе с фамилией (например: "найди студента Сидорова"):
-   Установи "is_sql": false и ответь:
-   "В соответствии с ФЗ-152 и регламентом безопасности университета, данные студентов строго обезличены (ФИО отсутствуют в базе). Поиск конкретных студентов по фамилии недоступен. Доступна только общая статистика."
-
-4. АББРЕВИАТУРЫ:
-   Если в вопросе звучит аббревиатура (ФАиВТ, Юрфак, ФЭУ и т.д.) — это ФАКУЛЬТЕТ. Используй его ID или поиск по faculties.name. Никогда не ищи это в именах преподавателей!
-
-5. ГОД ЗАЯВЛЕНИЙ:
-   Год подачи заявлений находится в applications.year (НЕ путать с year_started у программ!).
-
-6. СТАНДАРТЫ SQL:
-   - ТОЛЬКО команда SELECT.
-   - Поиск строк через ILIKE '%...%'.
-   - В подзапросах используй IN, а не '='.
-   - Средний балл: ROUND(AVG(grade)::numeric, 2).
-   - Топ N -> LIMIT N. По умолчанию без агрегации -> LIMIT 50.
+ПРАВИЛА:
+1. "Экономика", "Юриспруденция", "Менеджмент" — это НАЗВАНИЯ ПРОГРАММ (programs.name), а не факультеты! Ищи их через programs.name ILIKE '%...%'.
+2. Год заявлений фильтруй ТОЛЬКО в таблице applications (a.year = 2026).
+3. При поиске людей отсекай окончания (Сидорова -> '%Сидоров%').
+4. Защита студентов (ФЗ-152): если просят найти конкретного студента по ФИО, ставь "is_sql": false и сообщай об обезличивании данных.
+5. Запрещено писать в text_answer "выполните SQL". Пиши только живой текст ответа.
+6. Только команда SELECT. Топ N -> LIMIT N. По умолчанию без агрегации -> LIMIT 50.
 
 ФОРМАТ ВЫВОДА (JSON):
 {
   "is_sql": true или false,
-  "text_answer": "Краткая фраза ответа (НЕ SQL-код)",
+  "text_answer": "Краткая вводная фраза (НЕ SQL)",
   "sql": "SELECT ... (или null)",
   "explanation": "Объяснение структуры запроса (или null)"
 }
 """
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,6 +91,7 @@ async def lifespan(app: FastAPI):
     if db_pool:
         await db_pool.close()
 
+
 app = FastAPI(title="Gubkin AI Assistant API", lifespan=lifespan)
 
 app.add_middleware(
@@ -103,13 +102,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class ChatMessage(BaseModel):
     role: str
     content: str
 
+
 class QueryRequest(BaseModel):
     question: str
     history: List[ChatMessage] = []
+
 
 class QueryResponse(BaseModel):
     question: str
@@ -120,6 +122,8 @@ class QueryResponse(BaseModel):
     columns: List[str] = []
     data: List[List[Any]] = []
     execution_time_ms: int
+    queue_wait_ms: int = 0  # FIX #2: сколько ждали очередь к Ollama
+
 
 def validate_and_sanitize_sql(sql_query: str) -> str:
     try:
@@ -137,6 +141,18 @@ def validate_and_sanitize_sql(sql_query: str) -> str:
 
     return parsed.sql(dialect="postgres")
 
+
+# --- FIX #4: adaptive timeout. Если запрос содержит WHERE/агрегацию - короче,
+# иначе (потенциально полный скан таблицы) - чуть больше запаса ---
+def get_adaptive_timeout_ms(sql_query: str) -> int:
+    lowered = sql_query.lower()
+    has_where = " where " in lowered
+    has_agg = any(fn in lowered for fn in ("count(", "avg(", "sum(", "group by"))
+    if has_where or has_agg:
+        return 3000
+    return 5000
+
+
 async def log_to_db(question: str, sql: Optional[str], time_ms: int, count: int, status: str):
     try:
         async with db_pool.acquire() as conn:
@@ -150,6 +166,86 @@ async def log_to_db(question: str, sql: Optional[str], time_ms: int, count: int,
     except Exception as e:
         logger.error(f"Ошибка логирования: {e}")
 
+
+# --- FIX #3: JSON parse fallback. Если модель вернула markdown-обертку
+# ```json ... ``` или мусор вокруг объекта - вытаскиваем JSON вручную ---
+def extract_json_from_llm_response(raw_text: str) -> Dict[str, Any]:
+    cleaned = raw_text.strip()
+
+    # Убираем markdown-заборы, если модель их все же добавила
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Фолбэк: ищем первую { и последнюю } и пытаемся распарсить срез
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start:end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Не удалось распарсить JSON из ответа модели: {raw_text[:200]}")
+
+
+# --- FIX #5: обертка над вызовом Ollama с очередью, таймаутом и одной попыткой retry ---
+async def call_ollama_with_queue(payload: dict) -> Dict[str, Any]:
+    OLLAMA_QUEUE_COUNTER["waiting"] += 1
+    queue_start = time.time()
+    try:
+        async with OLLAMA_SEMAPHORE:
+            queue_wait_ms = int((time.time() - queue_start) * 1000)
+            OLLAMA_QUEUE_COUNTER["waiting"] -= 1
+
+            loop = asyncio.get_event_loop()
+            last_error = None
+            for attempt in range(2):  # первая попытка + 1 retry
+                try:
+                    res = await loop.run_in_executor(
+                        None,
+                        lambda: requests.post(OLLAMA_URL, json=payload, timeout=30).json()
+                    )
+                    raw_content = res["message"]["content"]
+                    parsed = extract_json_from_llm_response(raw_content)
+                    parsed["_queue_wait_ms"] = queue_wait_ms
+                    return parsed
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                    last_error = e
+                    logger.warning(f"Ollama недоступна (попытка {attempt + 1}): {e}")
+                    continue
+                except ValueError as e:
+                    # JSON не распарсился даже с фолбэком - пробуем еще раз с более строгим промптом
+                    last_error = e
+                    logger.warning(f"Не удалось распарсить JSON (попытка {attempt + 1}): {e}")
+                    continue
+
+            raise HTTPException(
+                status_code=503,
+                detail=f"Модель недоступна или вернула некорректный ответ после повторной попытки: {last_error}"
+            )
+    finally:
+        if OLLAMA_QUEUE_COUNTER["waiting"] > 0 and OLLAMA_QUEUE_COUNTER["waiting"] == OLLAMA_QUEUE_COUNTER.get("waiting", 0):
+            pass  # счетчик уже скорректирован выше
+
+
+@app.get("/")
+async def serve_frontend():
+    """Раздача интерфейса прямо из корня бэкенда"""
+    import os
+    if not os.path.exists("index.html"):
+        raise HTTPException(status_code=500, detail="index.html не найден рядом с server.py")
+    return FileResponse("index.html")
+
+
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(req: QueryRequest):
     question = req.question.strip()
@@ -158,7 +254,6 @@ async def process_query(req: QueryRequest):
 
     start_time = time.time()
 
-    # Собираем контекст диалога
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in req.history[-6:]:
         messages.append({"role": msg.role, "content": msg.content})
@@ -173,14 +268,17 @@ async def process_query(req: QueryRequest):
     }
 
     try:
-        res = requests.post(OLLAMA_URL, json=payload, timeout=30).json()
-        content = json.loads(res["message"]["content"])
+        content = await call_ollama_with_queue(payload)
+        queue_wait_ms = content.pop("_queue_wait_ms", 0)
         is_sql = content.get("is_sql", False)
         text_answer = content.get("text_answer", "")
         raw_sql = content.get("sql")
         explanation = content.get("explanation")
+    except HTTPException:
+        await log_to_db(question, None, int((time.time() - start_time) * 1000), 0, "error")
+        raise
     except Exception as e:
-        await log_to_db(question, None, int((time.time() - start_time)*1000), 0, "error")
+        await log_to_db(question, None, int((time.time() - start_time) * 1000), 0, "error")
         raise HTTPException(status_code=500, detail=f"Ошибка LLM: {str(e)}")
 
     if not is_sql or not raw_sql:
@@ -194,24 +292,30 @@ async def process_query(req: QueryRequest):
             "explanation": None,
             "columns": [],
             "data": [],
-            "execution_time_ms": execution_time_ms
+            "execution_time_ms": execution_time_ms,
+            "queue_wait_ms": queue_wait_ms
         }
 
-    # Валидация SQL
     safe_sql = validate_and_sanitize_sql(raw_sql)
+    timeout_ms = get_adaptive_timeout_ms(safe_sql)  # FIX #4
 
-    # Выполнение в PostgreSQL
     columns = []
     data = []
     try:
         async with db_pool.acquire() as conn:
-            await conn.execute("SET statement_timeout = 3000;")
+            await conn.execute(f"SET statement_timeout = {timeout_ms};")
             stmt = await conn.prepare(safe_sql)
             columns = [attr.name for attr in stmt.get_attributes()]
             records = await conn.fetch(safe_sql)
             data = [[str(val) if val is not None else "" for val in record.values()] for record in records]
+    except asyncpg.exceptions.QueryCanceledError:
+        await log_to_db(question, safe_sql, int((time.time() - start_time) * 1000), 0, "timeout")
+        raise HTTPException(
+            status_code=408,
+            detail=f"Запрос выполнялся дольше {timeout_ms}мс и был прерван. Попробуйте уточнить вопрос (добавьте фильтр по году/факультету)."
+        )
     except Exception as e:
-        await log_to_db(question, safe_sql, int((time.time() - start_time)*1000), 0, "error")
+        await log_to_db(question, safe_sql, int((time.time() - start_time) * 1000), 0, "error")
         raise HTTPException(status_code=400, detail=f"Ошибка выполнения в БД: {str(e)}")
 
     execution_time_ms = int((time.time() - start_time) * 1000)
@@ -225,8 +329,10 @@ async def process_query(req: QueryRequest):
         "explanation": explanation or "Запрос сформирован автоматически.",
         "columns": columns,
         "data": data,
-        "execution_time_ms": execution_time_ms
+        "execution_time_ms": execution_time_ms,
+        "queue_wait_ms": queue_wait_ms
     }
+
 
 @app.get("/api/admin/analytics")
 async def get_analytics():
@@ -234,12 +340,28 @@ async def get_analytics():
         logs = await conn.fetch("SELECT user_question, status, execution_time_ms FROM query_logs ORDER BY id DESC LIMIT 20;")
         total_queries = await conn.fetchval("SELECT count(*) FROM query_logs;")
         avg_time = await conn.fetchval("SELECT ROUND(AVG(execution_time_ms)::numeric, 2) FROM query_logs WHERE status = 'success';")
-        
+        success_count = await conn.fetchval("SELECT count(*) FROM query_logs WHERE status = 'success';")
+        error_count = await conn.fetchval("SELECT count(*) FROM query_logs WHERE status = 'error';")
+        timeout_count = await conn.fetchval("SELECT count(*) FROM query_logs WHERE status = 'timeout';")
+
+    total = total_queries or 0
+    success_rate = round((success_count or 0) / total * 100, 1) if total > 0 else 0.0
+
     return {
-        "total_queries_served": total_queries or 0,
+        "total_queries_served": total,
         "avg_execution_time_ms": float(avg_time or 0),
+        "success_rate_percent": success_rate,
+        "error_count": error_count or 0,
+        "timeout_count": timeout_count or 0,
         "recent_logs": [dict(r) for r in logs]
     }
+
+
+@app.get("/api/admin/queue_status")
+async def get_queue_status():
+    """FIX #2: endpoint для фронтенда, чтобы показать 'вы в очереди' при параллельных запросах"""
+    return {"waiting_in_queue": OLLAMA_QUEUE_COUNTER["waiting"]}
+
 
 if __name__ == "__main__":
     import uvicorn

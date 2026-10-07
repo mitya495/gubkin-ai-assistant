@@ -81,7 +81,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            flex-shrink: 0; /* Не сжимается */
+            flex-shrink: 0;
         }
 
         .header-left { display: flex; align-items: center; gap: 12px; }
@@ -105,7 +105,19 @@
         .close-btn { background: none; border: none; color: #ffffff; opacity: 0.7; font-size: 22px; cursor: pointer; }
         .close-btn:hover { opacity: 1; }
 
-        /* ИСПРАВЛЕНИЕ: Кнопки-подсказки теперь НИКОГДА не сжимаются */
+        /* FIX: индикатор очереди к Ollama */
+        .queue-banner {
+            background: #fff3cd;
+            color: #856404;
+            font-size: 11px;
+            padding: 6px 16px;
+            text-align: center;
+            display: none;
+            flex-shrink: 0;
+            border-bottom: 1px solid #ffe69c;
+        }
+        .queue-banner.visible { display: block; }
+
         .suggestions {
             padding: 10px 15px;
             background: #f8fafc;
@@ -114,7 +126,7 @@
             gap: 8px;
             overflow-x: auto;
             white-space: nowrap;
-            flex-shrink: 0; /* Защита от сжатия */
+            flex-shrink: 0;
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
@@ -131,6 +143,9 @@
             font-weight: 500;
             transition: all 0.2s;
             flex-shrink: 0;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .suggestion-chip:hover {
             background: var(--gubkin-accent);
@@ -173,23 +188,41 @@
             box-shadow: 0 4px 10px rgba(0, 114, 206, 0.2);
         }
 
-        .bot-text-answer {
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
+        .bot-text-answer { margin-bottom: 8px; font-weight: 500; }
+
+        .sql-block-wrapper { position: relative; margin: 8px 0; }
 
         .sql-block {
             background: #1E1E1E;
             color: #D4D4D4;
             padding: 10px 12px;
+            padding-right: 60px;
             border-radius: 8px;
             font-family: 'Consolas', monospace;
             font-size: 11px;
-            margin: 8px 0;
             overflow-x: auto;
             border-left: 4px solid var(--gubkin-light-blue);
             line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
+
+        /* FIX: кнопка копирования SQL */
+        .copy-sql-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #D4D4D4;
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .copy-sql-btn:hover { background: rgba(255,255,255,0.2); }
+        .copy-sql-btn.copied { background: #2e7d32; color: white; }
 
         .explanation-block {
             background: #f0f7ff;
@@ -201,7 +234,6 @@
             margin-bottom: 8px;
         }
 
-        /* Предупреждение о большой выборке */
         .large-dataset-banner {
             background: #fff8e1;
             border: 1px solid #ffe082;
@@ -228,30 +260,37 @@
             gap: 4px;
             transition: background 0.2s;
         }
+        .pagination-action-btn:hover { background: #0072CE; }
 
-        .pagination-action-btn:hover {
-            background: #0072CE;
-        }
-
-        .telemetry-tag {
-            display: inline-block;
-            font-size: 10px;
-            color: #888;
-            margin-top: 5px;
-        }
+        .telemetry-tag { display: inline-block; font-size: 10px; color: #888; margin-top: 5px; }
 
         .table-container {
             margin-top: 8px;
             max-height: 200px;
+            max-width: 100%;
             overflow: auto;
             border-radius: 6px;
             border: 1px solid #e2e8f0;
         }
 
         table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
-        th { background: #f1f5f9; color: var(--gubkin-dark-blue); padding: 7px 10px; font-weight: 600; position: sticky; top: 0; border-bottom: 1px solid #cbd5e1; }
-        td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+        th {
+            background: #f1f5f9;
+            color: var(--gubkin-dark-blue);
+            padding: 7px 10px;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            border-bottom: 1px solid #cbd5e1;
+            white-space: nowrap;
+        }
+        td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
         tr:nth-child(even) { background-color: #f8fafc; }
+
+        .error-msg {
+            border-color: #ffcdd2 !important;
+            background-color: #ffebee !important;
+        }
 
         .chat-input-area {
             padding: 12px 16px;
@@ -260,7 +299,7 @@
             display: flex;
             gap: 10px;
             align-items: center;
-            flex-shrink: 0; /* Не сжимается */
+            flex-shrink: 0;
         }
 
         .chat-input-area input {
@@ -273,7 +312,10 @@
             outline: none;
             transition: all 0.2s;
         }
-
+        .chat-input-area input:disabled {
+            background: #f5f5f5;
+            cursor: not-allowed;
+        }
         .chat-input-area input:focus {
             border-color: var(--gubkin-light-blue);
             box-shadow: 0 0 0 3px var(--gubkin-accent);
@@ -293,6 +335,7 @@
             transition: background 0.2s, transform 0.1s;
         }
         .send-btn:hover { background: var(--gubkin-blue); transform: scale(1.05); }
+        .send-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
         .send-btn svg { width: 18px; height: 18px; fill: currentColor; transform: translateX(1px); }
 
         .typing-indicator { display: flex; align-items: center; gap: 4px; padding: 8px 12px; }
@@ -323,7 +366,8 @@
         <button class="close-btn" onclick="toggleChat()">&times;</button>
     </div>
 
-    <!-- Кнопки подсказок (Никогда не сжимаются) -->
+    <div class="queue-banner" id="queueBanner">⏳ Сервер занят другим запросом, ожидайте...</div>
+
     <div class="suggestions">
         <div class="suggestion-chip" onclick="quickAsk('Сколько заявлений подано на Экономику в 2026 году?')">📊 Заявления 2026</div>
         <div class="suggestion-chip" onclick="quickAsk('Выведи топ 5 самых популярных образовательных программ по количеству заявлений')">🏆 Топ-5 программ</div>
@@ -339,7 +383,7 @@
 
     <div class="chat-input-area">
         <input type="text" id="userInput" placeholder="Спросите что-нибудь..." autocomplete="off" onkeydown="if(event.key==='Enter') sendMessage()">
-        <button class="send-btn" onclick="sendMessage()" title="Отправить">
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Отправить">
             <svg viewBox="0 0 24 24">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
             </svg>
@@ -348,26 +392,60 @@
 </div>
 
 <script>
-    const API_URL = "http://localhost:8000/api/query";
+    // Относительный путь: работает локально, по IP и через HTTPS-туннель!
+    const API_URL = "/api/query";
+    const QUEUE_STATUS_URL = "/api/admin/queue_status";
     let chatHistory = [];
+    let isSending = false;
 
     function toggleChat() {
         document.getElementById("chatWidget").classList.toggle("hidden");
     }
 
     function quickAsk(text) {
+        if (isSending) return; // FIX: не даем спамить пока ждем ответ
         document.getElementById("userInput").value = text;
         sendMessage();
     }
 
+    function setInputLocked(locked) {
+        document.getElementById("userInput").disabled = locked;
+        document.getElementById("sendBtn").disabled = locked;
+    }
+
+    // FIX #2: опрашиваем очередь, пока ждем ответ, чтобы показать баннер "сервер занят"
+    let queuePollInterval = null;
+    function startQueuePolling() {
+        queuePollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(QUEUE_STATUS_URL);
+                const data = await res.json();
+                const banner = document.getElementById("queueBanner");
+                if (data.waiting_in_queue > 0) {
+                    banner.textContent = `⏳ В очереди к модели: ${data.waiting_in_queue} запрос(ов). Ожидайте...`;
+                    banner.classList.add("visible");
+                } else {
+                    banner.classList.remove("visible");
+                }
+            } catch (e) { /* тихо игнорируем, это не критично */ }
+        }, 800);
+    }
+    function stopQueuePolling() {
+        if (queuePollInterval) clearInterval(queuePollInterval);
+        document.getElementById("queueBanner").classList.remove("visible");
+    }
+
     async function sendMessage() {
+        if (isSending) return; // FIX: защита от двойной отправки
         const input = document.getElementById("userInput");
         const messageText = input.value.trim();
         if (!messageText) return;
 
+        isSending = true;
+        setInputLocked(true);
+
         const messagesContainer = document.getElementById("chatMessages");
 
-        // 1. Сообщение пользователя
         const userDiv = document.createElement("div");
         userDiv.className = "msg user";
         userDiv.textContent = messageText;
@@ -376,7 +454,6 @@
         input.value = "";
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-        // 2. Индикатор загрузки
         const loadingDiv = document.createElement("div");
         loadingDiv.className = "msg bot";
         loadingDiv.innerHTML = `
@@ -390,42 +467,58 @@
         messagesContainer.appendChild(loadingDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
+        startQueuePolling();
+
+        // FIX: таймаут на фронте чуть больше, чем максимально возможный на бэке (30с Ollama + запас)
+        const controller = new AbortController();
+        const clientTimeout = setTimeout(() => controller.abort(), 40000);
+
         try {
-            // 3. Запрос к бэкенду
             const response = await fetch(API_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     question: messageText,
                     history: chatHistory
-                })
+                }),
+                signal: controller.signal
             });
 
+            clearTimeout(clientTimeout);
             const data = await response.json();
             loadingDiv.remove();
 
             if (!response.ok) {
-                throw new Error(data.detail || "Ошибка обработки");
+                // FIX: отдельная обработка 408 (timeout БД) и 503 (Ollama недоступна)
+                let friendlyMsg = data.detail || "Ошибка обработки";
+                if (response.status === 408) {
+                    friendlyMsg = `⏱ ${data.detail}`;
+                } else if (response.status === 503) {
+                    friendlyMsg = `🔌 Модель временно недоступна: ${data.detail}`;
+                }
+                throw new Error(friendlyMsg);
             }
 
             chatHistory.push({ role: "user", content: messageText });
             chatHistory.push({ role: "assistant", content: data.text_answer || data.sql || "" });
 
-            // 4. Отрисовка ответа
             const botDiv = document.createElement("div");
             botDiv.className = "msg bot";
 
             let htmlContent = `<div class="bot-text-answer">${escapeHtml(data.text_answer)}</div>`;
 
             if (data.is_sql && data.sql) {
+                const sqlId = `sql-${Date.now()}`;
                 htmlContent += `
                     <div class="explanation-block">
                         💡 <strong>Explainable AI:</strong> ${escapeHtml(data.explanation)}
                     </div>
-                    <div class="sql-block">${escapeHtml(data.sql)}</div>
+                    <div class="sql-block-wrapper">
+                        <div class="sql-block" id="${sqlId}">${escapeHtml(data.sql)}</div>
+                        <button class="copy-sql-btn" onclick="copySql('${sqlId}', this)">📋 Copy</button>
+                    </div>
                 `;
 
-                // Одиночный результат (COUNT, AVG)
                 if (data.data && data.data.length === 1 && data.data[0].length === 1) {
                     htmlContent += `
                         <div style="background: #e8f5e9; border: 1px solid #c8e6c9; padding: 10px 14px; border-radius: 8px; margin: 8px 0; color: #2e7d32; font-size: 14px;">
@@ -433,12 +526,11 @@
                         </div>
                     `;
                 }
-                // Таблица
                 else if (data.data && data.data.length > 0) {
                     htmlContent += `<div class="table-container"><table><thead><tr>`;
                     data.columns.forEach(col => htmlContent += `<th>${escapeHtml(col)}</th>`);
                     htmlContent += `</tr></thead><tbody>`;
-                    
+
                     data.data.forEach(row => {
                         htmlContent += `<tr>`;
                         row.forEach(val => htmlContent += `<td>${escapeHtml(val)}</td>`);
@@ -446,7 +538,6 @@
                     });
                     htmlContent += `</tbody></table></div>`;
 
-                    // БОНУСНЫЕ БАЛЛЫ: Предупреждение о большой выборке + Пагинация
                     if (data.data.length >= 50) {
                         htmlContent += `
                             <div class="large-dataset-banner">
@@ -458,8 +549,7 @@
                             </div>
                         `;
                     }
-                } 
-                // Пустая выборка
+                }
                 else {
                     htmlContent += `
                         <div style="background: #fff3e0; border: 1px solid #ffe0b2; padding: 8px 12px; border-radius: 8px; margin: 8px 0; color: #e65100; font-size: 12px;">
@@ -469,21 +559,51 @@
                 }
             }
 
-            htmlContent += `<div class="telemetry-tag">⏱ ${data.execution_time_ms} мс ${data.is_sql ? `| Найдено строк: ${data.data.length}` : ''}</div>`;
+            const queueInfo = data.queue_wait_ms > 100 ? ` | Ожидание очереди: ${data.queue_wait_ms} мс` : '';
+            htmlContent += `<div class="telemetry-tag">⏱ ${data.execution_time_ms} мс ${data.is_sql ? `| Найдено строк: ${data.data.length}` : ''}${queueInfo}</div>`;
             botDiv.innerHTML = htmlContent;
             messagesContainer.appendChild(botDiv);
 
         } catch (err) {
+            clearTimeout(clientTimeout);
             if (loadingDiv) loadingDiv.remove();
             const errDiv = document.createElement("div");
-            errDiv.className = "msg bot";
-            errDiv.style.borderColor = "#ffcdd2";
-            errDiv.style.backgroundColor = "#ffebee";
-            errDiv.innerHTML = `⚠️ <strong>Ошибка:</strong> ${escapeHtml(err.message)}`;
+            errDiv.className = "msg bot error-msg";
+            const isAbort = err.name === "AbortError";
+            const msg = isAbort
+                ? "Запрос занял слишком много времени и был прерван на клиенте. Попробуйте еще раз или уточните вопрос."
+                : err.message;
+            errDiv.innerHTML = `⚠️ <strong>Ошибка:</strong> ${escapeHtml(msg)}`;
             messagesContainer.appendChild(errDiv);
+        } finally {
+            stopQueuePolling();
+            isSending = false;
+            setInputLocked(false);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            document.getElementById("userInput").focus();
         }
+    }
 
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    // FIX: copy SQL to clipboard
+    function copySql(elementId, btnElement) {
+        const sqlText = document.getElementById(elementId).textContent;
+        navigator.clipboard.writeText(sqlText).then(() => {
+            const originalText = btnElement.textContent;
+            btnElement.textContent = "✅ Copied";
+            btnElement.classList.add("copied");
+            setTimeout(() => {
+                btnElement.textContent = originalText;
+                btnElement.classList.remove("copied");
+            }, 1500);
+        }).catch(() => {
+            // Фолбэк для окружений без доступа к clipboard API (например, http без localhost)
+            const textarea = document.createElement("textarea");
+            textarea.value = sqlText;
+            document.body.appendChild(textarea);
+            textarea.select();
+            try { document.execCommand("copy"); } catch (e) {}
+            document.body.removeChild(textarea);
+        });
     }
 
     function escapeHtml(string) {
