@@ -29,7 +29,7 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 ALLOWED_TABLES = {"faculties", "programs", "applications", "students", "teachers", "courses", "grades"}
 
 # Семафор очереди инференса (защита VRAM видеокарты)
-OLLAMA_SEMAPHORE = asyncio.Semaphore(1)
+OLLAMA_SEMAPHORE = asyncio.Semaphore(2)
 OLLAMA_QUEUE_COUNTER = {"waiting": 0}
 
 db_pool: Optional[asyncpg.Pool] = None
